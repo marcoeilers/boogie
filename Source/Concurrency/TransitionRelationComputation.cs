@@ -59,15 +59,18 @@ namespace Microsoft.Boogie
             return firstExistsVars.Concat(secondExistsVars).Contains(v);
         }
 
-        private void PopulateExistsVars(Variable v)
+        private Variable GetExistsVar(Variable v)
         {
-            if (existsVars.ContainsKey(v)) return;
-            existsVars[v] = new BoundVariable(Token.NoToken, new TypedIdent(Token.NoToken, "#tmp_" + existsVars.Count, v.TypedIdent.Type));
+            if (!existsVars.ContainsKey(v))
+            {
+                existsVars[v] = new BoundVariable(Token.NoToken,
+                     new TypedIdent(Token.NoToken, "#tmp_" + existsVars.Count, v.TypedIdent.Type));
+            }
+            return existsVars[v];
         }
 
-        private Function TriggerFunction(Variable v)
+        private Function CommutativityTriggerFunction(Variable v)
         {
-            PopulateExistsVars(v);
             if (firstExistsVars.Contains(v))
             {
                 return first.TriggerFunction(v);
@@ -83,14 +86,43 @@ namespace Microsoft.Boogie
             }
         }
 
-        public List<Cmd> TriggerAssumes()
+        private void AddCommutativityTrigger(Variable v, Variable quantifiedVar, List<Expr> commutativityTriggers)
+        {
+            var triggerFun = CommutativityTriggerFunction(v);
+
+            commutativityTriggers.Add(
+                new NAryExpr(Token.NoToken,
+                    new FunctionCall(triggerFun),
+                    new Expr[] { Expr.Ident(quantifiedVar) }));
+        }
+
+        public List<Cmd> CommutativityTriggerAssumes()
         {
             return existsVars.Keys.Select(v =>
                 new AssumeCmd(Token.NoToken,
                     new NAryExpr(Token.NoToken,
-                        new FunctionCall(TriggerFunction(v)),
+                        new FunctionCall(CommutativityTriggerFunction(v)),
                         new Expr[] { Expr.Ident(v) })))
                 .ToList<Cmd>();
+        }
+
+        public void AddUserTrigger(Variable v, Variable quantifiedVar, List<Expr> refinementTriggers)
+        {
+            Variable vOriginal = null;
+            if (first != null && first.locVarCopyToOriginal.ContainsKey(v))
+                vOriginal = first.locVarCopyToOriginal[v];
+            else
+                vOriginal = second.locVarCopyToOriginal[v];
+
+            var triggerExpr = vOriginal.FindExprAttribute("trigger");
+            if (triggerExpr != null)
+            {
+                var varToQuantifiedVar = new Dictionary<Variable, Expr> {
+                        { vOriginal, new IdentifierExpr(Token.NoToken, quantifiedVar) }
+                    };
+                var subst = Substituter.SubstitutionFromHashtable(varToQuantifiedVar);
+                refinementTriggers.Add(Substituter.Apply(subst, triggerExpr));
+            }
         }
 
         private void Substitute(Dictionary<Variable, Expr> map, ref List<Expr> pathExprs, ref Dictionary<Variable, Expr> varToExpr)
@@ -201,17 +233,17 @@ namespace Microsoft.Boogie
             }
             InferSubstitution(allExistsVars, existsSubstitutionMap, path.pathExprs, inferredSelectEqualities);
 
-            List<Expr> triggerExprs = new List<Expr>();
             List<Variable> quantifiedVars = new List<Variable>();
+            List<Expr> commutativityTriggers = new List<Expr>();
+            List<Expr> userTriggers = new List<Expr>();
             foreach (var v in usedExistsVars.Except(existsSubstitutionMap.Keys))
             {
-                var triggerFun = TriggerFunction(v); // this call populates existsVars[v]
-                var quantifiedVar = existsVars[v];
-                triggerExprs.Add(
-                    new NAryExpr(Token.NoToken, 
-                        new FunctionCall(triggerFun), 
-                        new Expr[] { Expr.Ident(quantifiedVar) }));
+                var quantifiedVar = GetExistsVar(v);
                 quantifiedVars.Add(quantifiedVar);
+
+                AddCommutativityTrigger(v, quantifiedVar, commutativityTriggers);
+                AddUserTrigger(v, quantifiedVar, userTriggers);
+
                 existsSubstitutionMap[v] = Expr.Ident(quantifiedVar);
             }
 
@@ -233,17 +265,13 @@ namespace Microsoft.Boogie
             var returnExpr = Expr.And(returnExprs);
             if (quantifiedVars.Count > 0)
             {
-                if (first == null)
-                {
-                    returnExpr = new ExistsExpr(Token.NoToken, quantifiedVars, returnExpr);
-                }
-                else
-                {
-                    returnExpr = new ExistsExpr(Token.NoToken, 
-                                    quantifiedVars, 
-                                    new Trigger(Token.NoToken, true, triggerExprs), 
-                                    returnExpr);
-                }
+                Trigger trigger = null;
+                if (userTriggers.Count > 0)
+                    trigger = new Trigger(Token.NoToken, true, userTriggers, trigger);
+                if (CommandLineOptions.Clo.GenerateCommutativityTriggers && first != null)
+                    trigger = new Trigger(Token.NoToken, true, commutativityTriggers, trigger);
+
+                returnExpr = new ExistsExpr(Token.NoToken, quantifiedVars, trigger, returnExpr);
             }
             return returnExpr;
         }

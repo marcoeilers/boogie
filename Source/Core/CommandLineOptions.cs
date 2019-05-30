@@ -598,6 +598,7 @@ namespace Microsoft.Boogie {
     public bool TrustNonInterference = false;
     public int TrustLayersUpto = -1;
     public int TrustLayersDownto = int.MaxValue;
+    public bool GenerateCommutativityTriggers = false;
 
     public enum VCVariety {
       Structured,
@@ -1650,6 +1651,7 @@ namespace Microsoft.Boogie {
               ps.CheckBooleanFlag("verifySeparately", ref VerifySeparately) ||
               ps.CheckBooleanFlag("trustAtomicityTypes", ref TrustAtomicityTypes) ||
               ps.CheckBooleanFlag("trustNonInterference", ref TrustNonInterference) ||
+              ps.CheckBooleanFlag("generateCommutativityTriggers", ref GenerateCommutativityTriggers) ||
               ps.CheckBooleanFlag("useBaseNameForFileName", ref UseBaseNameForFileName)
               ) {
             // one of the boolean flags matched
