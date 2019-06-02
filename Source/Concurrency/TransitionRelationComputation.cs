@@ -64,7 +64,7 @@ namespace Microsoft.Boogie
             if (!existsVars.ContainsKey(v))
             {
                 existsVars[v] = new BoundVariable(Token.NoToken,
-                     new TypedIdent(Token.NoToken, "#tmp_" + existsVars.Count, v.TypedIdent.Type));
+                     new TypedIdent(Token.NoToken, "#tmp_" + existsVars.Count + "_" + v.Name, v.TypedIdent.Type));
             }
             return existsVars[v];
         }
