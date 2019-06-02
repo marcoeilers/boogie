@@ -80,7 +80,7 @@ namespace Microsoft.Boogie
         public HashSet<Variable> actionUsedGlobalVars;
         public HashSet<Variable> modifiedGlobalVars;
 
-        public Dictionary<Variable, Variable> locVarCopyToOriginal;
+        public Dictionary<Variable, Variable> varCopyToOriginal;
 
         public AtomicActionCopy(Procedure proc, Implementation impl)
         {
@@ -88,7 +88,7 @@ namespace Microsoft.Boogie
             this.impl = impl;
 
             this.triggerFuns = new Dictionary<Variable, Function>();
-            this.locVarCopyToOriginal = new Dictionary<Variable, Variable>();
+            this.varCopyToOriginal = new Dictionary<Variable, Variable>();
 
             // The gate of an atomic action is represented as asserts at the beginning of the procedure body.
             this.gate = impl.Blocks[0].cmds.TakeWhile((c, i) => c is AssertCmd).Cast<AssertCmd>().ToList();
@@ -117,12 +117,14 @@ namespace Microsoft.Boogie
                 Variable xCopy = new Formal(Token.NoToken, new TypedIdent(Token.NoToken, prefix + x.Name, x.TypedIdent.Type), true, x.Attributes);
                 inParamsCopy.Add(xCopy);
                 varMap[x] = Expr.Ident(xCopy);
+                varCopyToOriginal[xCopy] = x;
             }
             foreach (Variable x in impl.OutParams)
             {
                 Variable xCopy = new Formal(Token.NoToken, new TypedIdent(Token.NoToken, prefix + x.Name, x.TypedIdent.Type), false, x.Attributes);
                 outParamsCopy.Add(xCopy);
                 varMap[x] = Expr.Ident(xCopy);
+                varCopyToOriginal[xCopy] = x;
             }
             List<Variable> localsCopy = new List<Variable>();
             foreach (Variable x in impl.LocVars)
@@ -130,7 +132,7 @@ namespace Microsoft.Boogie
                 Variable xCopy = new Formal(Token.NoToken, new TypedIdent(Token.NoToken, prefix + x.Name, x.TypedIdent.Type), false);
                 varMap[x] = Expr.Ident(xCopy);
                 localsCopy.Add(xCopy);
-                locVarCopyToOriginal[xCopy] = x;
+                varCopyToOriginal[xCopy] = x;
             }
             Contract.Assume(proc.TypeParameters.Count == 0);
             AtomicActionDuplicator aad = new AtomicActionDuplicator(prefix, varMap);

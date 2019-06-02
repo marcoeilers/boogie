@@ -109,10 +109,10 @@ namespace Microsoft.Boogie
         public void AddUserTrigger(Variable v, Variable quantifiedVar, List<Expr> refinementTriggers)
         {
             Variable vOriginal = null;
-            if (first != null && first.locVarCopyToOriginal.ContainsKey(v))
-                vOriginal = first.locVarCopyToOriginal[v];
+            if (first != null && first.varCopyToOriginal.ContainsKey(v))
+                vOriginal = first.varCopyToOriginal[v];
             else
-                vOriginal = second.locVarCopyToOriginal[v];
+                vOriginal = second.varCopyToOriginal[v];
 
             var triggerExpr = vOriginal.FindExprAttribute("trigger");
             if (triggerExpr != null)
