@@ -179,7 +179,7 @@ namespace Microsoft.Boogie
             
             var transitionRelationComputation = new TransitionRelationComputation(first, second, frame, new HashSet<Variable>());
             Expr transitionRelation = transitionRelationComputation.TransitionRelationCompute();
-            if (CommandLineOptions.Clo.GenerateCommutativityTriggers)
+            if (!CommandLineOptions.Clo.NoCommutativityTriggers)
             {
                 List<Block> bs = new List<Block> { blocks[0] };
                 List<string> ls = new List<string> { blocks[0].Label };

@@ -231,7 +231,11 @@ namespace Microsoft.Boogie
             {
                 usedExistsVars.UnionWith(VariableCollector.Collect(expr).Intersect(allExistsVars));
             }
-            InferSubstitution(allExistsVars, existsSubstitutionMap, path.pathExprs, inferredSelectEqualities);
+
+            if (!CommandLineOptions.Clo.NoWitnessInference)
+            {
+                InferSubstitution(allExistsVars, existsSubstitutionMap, path.pathExprs, inferredSelectEqualities);
+            }
 
             List<Variable> quantifiedVars = new List<Variable>();
             List<Expr> commutativityTriggers = new List<Expr>();
@@ -268,7 +272,7 @@ namespace Microsoft.Boogie
                 Trigger trigger = null;
                 if (userTriggers.Count > 0)
                     trigger = new Trigger(Token.NoToken, true, userTriggers, trigger);
-                if (CommandLineOptions.Clo.GenerateCommutativityTriggers && first != null)
+                if (!CommandLineOptions.Clo.NoCommutativityTriggers && first != null)
                     trigger = new Trigger(Token.NoToken, true, commutativityTriggers, trigger);
 
                 returnExpr = new ExistsExpr(Token.NoToken, quantifiedVars, trigger, returnExpr);
