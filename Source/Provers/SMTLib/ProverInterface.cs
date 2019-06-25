@@ -1600,9 +1600,8 @@ namespace Microsoft.Boogie.SMTLib
 
 
     private class SMTErrorModelConverter {
-        private struct SMTDataType {
-            public string Constructor;
-            public List<SExpr> Types;
+        private class SMTDataType {
+            public Dictionary<string, List<SExpr>> ConstructorNameToArgTypes = new Dictionary<string, List<SExpr>>();
         }
 
         private List<SExpr> ErrorModelTodo;
@@ -1610,7 +1609,7 @@ namespace Microsoft.Boogie.SMTLib
         private StringBuilder ErrorModel = new StringBuilder();
         private HashSet<SExpr> TopLevelProcessed = new HashSet<SExpr>();
         private int NumNewArrays = 0;
-        private Dictionary<string, int> SortSet = new Dictionary<string, int>();
+        private HashSet<string> SortSet = new HashSet<string>();
         private Dictionary<string, SMTDataType> DataTypes = new Dictionary<string, SMTDataType>();
         private Dictionary<string, SExpr> Functions = new Dictionary<string, SExpr>();
 
@@ -1710,15 +1709,12 @@ namespace Microsoft.Boogie.SMTLib
                     return;
                 }
             }
-
-            if (SortSet.ContainsKey(type.Name) && SortSet[type.Name] == 0) {
-                var prefix = "@uc_T_" + type.Name.Substring(2) + "_";
-                if (element.Name.StartsWith(prefix)) {
-                    m.Append(type.Name + "!val!" + element.Name.Substring(prefix.Length));
-                    return;
-                }
+            
+            if (SortSet.Contains(type.Name)) {
+                m.Append(element.Name);
+                return;
             }
-
+            
             if (Functions.ContainsKey(element.Name) &&
                 type.Name == Functions[element.Name].Name) {
                 m.Append(element.Name);
@@ -1726,12 +1722,12 @@ namespace Microsoft.Boogie.SMTLib
             }
 
             if (DataTypes.ContainsKey(type.Name) &&
-                DataTypes[type.Name].Constructor == element.Name &&
-                element.ArgCount == DataTypes[type.Name].Types.Count) {
+                DataTypes[type.Name].ConstructorNameToArgTypes.ContainsKey(element.Name) &&
+                element.ArgCount == DataTypes[type.Name].ConstructorNameToArgTypes[element.Name].Count) {
                 m.Append("(" + element.Name);
                 for (int i = 0; i < element.ArgCount; ++i) {
                     m.Append(" ");
-                    ConstructComplexValue(element[i], DataTypes[type.Name].Types[i], m);
+                    ConstructComplexValue(element[i], DataTypes[type.Name].ConstructorNameToArgTypes[element.Name][i], m);
                 }
                 m.Append(")");
                 return;
@@ -1741,39 +1737,40 @@ namespace Microsoft.Boogie.SMTLib
             throw new BadExprFromProver ();
         }
 
-        void ConstructFunctionArguments(SExpr arguments, List<SExpr> argTypes, StringBuilder[] argValues) {
+        void ConstructFunctionArguments(SExpr arguments, Dictionary<string, int> argPositions, List<SExpr> argTypes, Dictionary<string, StringBuilder> argValues) {
             if (arguments.Name == "and") {
-                ConstructFunctionArguments(arguments[0], argTypes, argValues);
-                ConstructFunctionArguments(arguments[1], argTypes, argValues);
-            } else if (arguments.Name == "=" &&
-                       (arguments[0].Name.StartsWith("_ufmt_") || arguments[0].Name.StartsWith("x!"))) {
-                int argNum;
-                if (arguments[0].Name.StartsWith("_ufmt_"))
-                    argNum = System.Convert.ToInt32(arguments[0].Name.Substring("_uftm_".Length)) - 1;
-                else /* if (arguments[0].Name.StartsWith("x!")) */
-                    argNum = System.Convert.ToInt32(arguments[0].Name.Substring("x!".Length)) - 1;
-                if (argNum < 0 || argNum >= argTypes.Count) {
-                    Parent.HandleProverError("Unexpected function argument: " + arguments[0]);
+                ConstructFunctionArguments(arguments[0], argPositions, argTypes, argValues);
+                ConstructFunctionArguments(arguments[1], argPositions, argTypes, argValues);
+            } else if (arguments.Name == "=") {
+                var arg = arguments.ArgCount == 2 ? arguments[0] : arguments[1];
+                var argName = arg.Name;
+                if (!argPositions.ContainsKey(argName)) {
+                    Parent.HandleProverError("Unexpected function argument: " + arg);
+                    throw new BadExprFromProver();
+                }
+                if (argValues.ContainsKey(argName)) {
+                    Parent.HandleProverError("Function argument defined multiple times: " + arg);
                     throw new BadExprFromProver ();
                 }
-                if (argValues[argNum] != null) {
-                    Parent.HandleProverError("Function argument defined multiple times: " + arguments[0]);
-                    throw new BadExprFromProver ();
-                }
-                argValues[argNum] = new StringBuilder();
-                ConstructComplexValue(arguments[1], argTypes[argNum], argValues[argNum]);
+                argValues[argName] = new StringBuilder();
+                ConstructComplexValue(arguments.ArgCount == 2 ? arguments[1] : arguments[2], argTypes[argPositions[argName]], argValues[argName]);
             } else {
                 Parent.HandleProverError("Unexpected function argument: " + arguments);
                 throw new BadExprFromProver ();
             }
         }
 
-        void ConstructFunctionElements(SExpr element, List<SExpr> argTypes, SExpr outType, StringBuilder m) {
+        void ConstructFunctionElements(SExpr element, Dictionary<string, int> argPositions, List<SExpr> argTypes, SExpr outType, StringBuilder m) {
             while (element.Name == "ite") {
-                StringBuilder[] argValues = new StringBuilder[argTypes.Count];
-                ConstructFunctionArguments(element[0], argTypes, argValues);
-                foreach (var s in argValues)
-                    m.Append(s + " ");
+                Dictionary<string, StringBuilder> argValues = new Dictionary<string, StringBuilder>(argTypes.Count);
+                ConstructFunctionArguments(element[0], argPositions, argTypes, argValues);
+                Dictionary<int, string> argAtPosition = new Dictionary<int, string>(argPositions.Count);
+                foreach (var kv in argPositions) {
+                    argAtPosition[kv.Value] = kv.Key;
+                }
+                for (int pos = 0; pos < argAtPosition.Count; pos++) {
+                    m.Append(argValues[argAtPosition[pos]] + " ");
+                }
                 m.Append("-> ");
                 ConstructComplexValue(element[1], outType, m);
                 m.Append("\n  ");
@@ -1786,18 +1783,20 @@ namespace Microsoft.Boogie.SMTLib
         }
 
         void ConstructFunction(SExpr element, SExpr inType, SExpr outType, StringBuilder m) {
-            List<SExpr> argTypes = new List<SExpr>();
+            Dictionary<string, int> argPositions = new Dictionary<string, int>();
+            List<SExpr> argTypes = new List<SExpr>(inType.ArgCount);
 
             for (int i = 0; i < inType.ArgCount; ++i) {
-                if (inType[i].Name != "_ufmt_" + (i + 1) && inType[i].Name != "x!" + (i + 1) &&
-                    !inType[i].Name.StartsWith("BOUND_VARIABLE_")) {
-                    Parent.HandleProverError("Unexpected function argument: " + inType[i].Name);
-                    throw new BadExprFromProver ();
+                if (inType[i].ArgCount == 1) {
+                    argPositions.Add(inType[i].Name, argTypes.Count);
+                    argTypes.Add(inType[i][0]);
+                } else {
+                    argPositions.Add(inType[i][0].Name, argTypes.Count);
+                    argTypes.Add(inType[i][1]);
                 }
-                argTypes.Add(inType[i][0]);
             }
 
-            ConstructFunctionElements(element, argTypes, outType, m);
+            ConstructFunctionElements(element, argPositions, argTypes, outType, m);
         }
 
         void ConstructDefine(SExpr element, StringBuilder m) {
@@ -1832,25 +1831,21 @@ namespace Microsoft.Boogie.SMTLib
             }
 
             SMTDataType dt = new SMTDataType();
+            string typeName = datatypes[0][0].Name;
             SExpr typeDef = datatypes[1][0];
-
-            if (typeDef.ArgCount != 1) {
-                Parent.HandleProverError("Unexpected datatype: " + datatypes);
-                throw new BadExprFromProver ();
-            }
-
-            dt.Constructor = typeDef[0].Name;
-            dt.Types = new List<SExpr>();
-
-            for (int i = 0; i < typeDef[0].ArgCount; ++i) {
-                if (typeDef[0][i].ArgCount != 1) {
-                    Parent.HandleProverError("Unexpected datatype constructor: " + typeDef[0]);
-                    throw new BadExprFromProver ();
+            for (int j = 0; j < typeDef.ArgCount; j++) {
+                var constructor = typeDef[j].Name;
+                var types = new List<SExpr>();
+                for (int i = 0; i < typeDef[j].ArgCount; ++i) {
+                    if (typeDef[j][i].ArgCount != 1) {
+                        Parent.HandleProverError("Unexpected datatype constructor: " + typeDef[0]);
+                        throw new BadExprFromProver();
+                    }
+                    types.Add(typeDef[j][i][0]);
                 }
-                dt.Types.Add(typeDef[0][i][0]);
+                dt.ConstructorNameToArgTypes[constructor] = types;
             }
-
-            DataTypes[typeDef.Name] = dt;
+            DataTypes[typeName] = dt;
         }
 
         private void ConvertErrorModel(StringBuilder m) {
@@ -1880,7 +1875,8 @@ namespace Microsoft.Boogie.SMTLib
                     ConstructDefine(e, m);
                     break;
                 case "declare-sort":
-                    SortSet[e[0].Name] = System.Convert.ToInt32(e[1].Name);
+                    var sortName = e.ArgCount == 2 ? e[0].ToString() : e[0].ToString() + e[1].ToString();
+                    SortSet.Add(sortName);
                     break;
                 case "declare-datatypes":
                     ExtractDataType(e);
