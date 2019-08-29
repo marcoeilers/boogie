@@ -86,7 +86,14 @@ public static int Parse (string s, string/*!*/ filename, out /*maybe null*/ Prog
   parser.Parse();
   if (parser.errors.count == 0)
   {
-    program = parser.Pgm;
+    if (CommandLineOptions.Clo.EncodingContractInfer)
+    {
+      program = Core.Translator.Translate(parser.Pgm);
+    }
+    else
+    {
+      program = parser.Pgm;
+    }
     program.ProcessDatatypeConstructors();
     return 0;
   }

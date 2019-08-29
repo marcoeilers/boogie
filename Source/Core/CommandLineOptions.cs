@@ -464,6 +464,7 @@ namespace Microsoft.Boogie {
     public int /*(0:3)*/ ErrorTrace = 1;
     public bool IntraproceduralInfer = true;
     public bool ContractInfer = false;
+    public bool EncodingContractInfer = false;
     public bool ExplainHoudini = false;
     public bool ReverseHoudiniWorklist = false;
     public bool ConcurrentHoudini = false;
@@ -1638,6 +1639,7 @@ namespace Microsoft.Boogie {
               ps.CheckBooleanFlag("traceDiagnosticsOnTimeout", ref TraceDiagnosticsOnTimeout) ||
               ps.CheckBooleanFlag("boolControlVC", ref SIBoolControlVC, true) ||
               ps.CheckBooleanFlag("contractInfer", ref ContractInfer) ||
+              ps.CheckBooleanFlag("encodingContractInfer", ref EncodingContractInfer) ||
               ps.CheckBooleanFlag("explainHoudini", ref ExplainHoudini) ||
               ps.CheckBooleanFlag("reverseHoudiniWorklist", ref ReverseHoudiniWorklist) ||
               ps.CheckBooleanFlag("crossDependencies", ref HoudiniUseCrossDependencies) ||
