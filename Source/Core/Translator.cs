@@ -41,7 +41,7 @@ namespace Core
       HashSet<string> existentials = new HashSet<string>();
       foreach (Declaration d in p.TopLevelDeclarations)
       {
-        if (d is Constant && ((Constant)d).Attributes.Key == "existential")
+        if (d is Constant && ((Constant)d).Attributes != null && ((Constant)d).Attributes.Key == "existential")
         {
           Constant exist = (Constant)d;
           existentials.Add(exist.Name);
@@ -615,6 +615,8 @@ namespace Core
     {
       IList<BigBlock> res = new List<BigBlock>();
 
+      bool USE_COMPLEX_TRAFO = true;
+
       if (loops_traversed.Count == 1) // this is an implicit indication that we are in the outer loop
       {
         // here we construct the first BigBlock
@@ -755,8 +757,20 @@ namespace Core
         IToken tok_second_bb = new Token();
         List<Cmd> simple_Cmds_second_bb = new List<Cmd>();
         string label_name_second_bb = loops_traversed[0] + "_second_bb";
-        StructuredCmd ec_if_second_bb = Infer_Invariants_Stmt(invariants, loops_traversed[0], targets_by_loop, targets_2_duplicates, loops_traversed);
-        BigBlock second_bb = new BigBlock(tok_second_bb, label_name_second_bb, simple_Cmds_second_bb, ec_if_second_bb, null);
+        AssumeCmd assumption = Infer_Invariants_Stmt(invariants, loops_traversed[0], targets_by_loop, targets_2_duplicates, loops_traversed);
+        BigBlock second_bb;
+        if (!USE_COMPLEX_TRAFO)
+        {
+          simple_Cmds_second_bb.Add(assumption);
+          second_bb = new BigBlock(tok_second_bb, label_name_second_bb, simple_Cmds_second_bb, null, null);
+        }
+        else
+        {
+          StructuredCmd ec_if_second_bb = Infer_Invariants_Stmt_Complex(invariants, loops_traversed[0], targets_by_loop, targets_2_duplicates, loops_traversed);
+          second_bb = new BigBlock(tok_second_bb, label_name_second_bb, simple_Cmds_second_bb, ec_if_second_bb, null);
+        }
+
+
 
         // construct the third BigBlock
 
@@ -787,7 +801,8 @@ namespace Core
           // assume on_i ==> on_a_i
           IToken tok_assume = new Token();
           Cmd new_assume = new AssumeCmd(tok_assume, on_imp_on_a);
-          simple_Cmds_third_bb.Add(new_assume);
+          //MARCO:UNSOUND
+          //simple_Cmds_third_bb.Add(new_assume);
         }
 
         // actual loop
@@ -1089,8 +1104,20 @@ namespace Core
         IToken tok_second_bb = new Token();
         List<Cmd> simple_Cmds_second_bb = new List<Cmd>();
         string label_name_second_bb = loops_traversed[last_loop_index] + "_second_bb";
-        StructuredCmd ec_if_second_bb = Infer_Invariants_Stmt(invariants, loops_traversed[last_loop_index], targets_by_loop, targets_2_duplicates, loops_traversed);
-        BigBlock second_bb = new BigBlock(tok_second_bb, label_name_second_bb, simple_Cmds_second_bb, ec_if_second_bb, null);
+        AssumeCmd second_assumption = Infer_Invariants_Stmt(invariants, loops_traversed[last_loop_index], targets_by_loop, targets_2_duplicates, loops_traversed);
+        BigBlock second_bb;
+        if (!USE_COMPLEX_TRAFO)
+        {
+          simple_Cmds_second_bb.Add(second_assumption);
+          second_bb = new BigBlock(tok_second_bb, label_name_second_bb, simple_Cmds_second_bb, null, null);
+        }
+        else
+        {
+          StructuredCmd ec_if_second_bb = Infer_Invariants_Stmt_Complex(invariants, loops_traversed[last_loop_index], targets_by_loop, targets_2_duplicates, loops_traversed);
+          second_bb = new BigBlock(tok_second_bb, label_name_second_bb, simple_Cmds_second_bb, ec_if_second_bb, null);
+        }
+
+
 
         // construct the third BigBlock
 
@@ -1122,7 +1149,8 @@ namespace Core
           // assume on_i ==> on_a_i
           IToken tok_assume = new Token();
           Cmd new_assume = new AssumeCmd(tok_assume, on_imp_on_a);
-          simple_Cmds_third_bb.Add(new_assume);
+          // MARCO: THIS IS UNSOUND
+          //simple_Cmds_third_bb.Add(new_assume);
         }
 
         // we are out of the loop here
@@ -1183,12 +1211,37 @@ namespace Core
     }
     // end Transform_While
 
-    // the method creates the statement of the form
-    // if ( (on_b_1 && ... && on_b_n) && ((on_a_1 && ... && on_a_n) ==> (inv_replaced_1 && ... inv_replaced_n)) )
-    //   then (assume on_1 && ... && on_n)
-    // else if ...
-    // and so on, with all possible invariants combinations
-    private static IfCmd Infer_Invariants_Stmt(IList<PredicateCmd> invariants, string loop_label, Dictionary<string, HashSet<string>> targets_by_loop, Dictionary<string, string> targets_2_duplicates, List<string> loops_traversed)
+
+    private static AssumeCmd Infer_Invariants_Stmt(IList<PredicateCmd> invariants, string loop_label, Dictionary<string, HashSet<string>> targets_by_loop, Dictionary<string, string> targets_2_duplicates, List<string> loops_traversed)
+    {
+      Expr assumption = new LiteralExpr(new Token(), true);
+      BinaryOperator and_op = new BinaryOperator(new Token(), BinaryOperator.Opcode.And);
+      BinaryOperator impl_op = new BinaryOperator(new Token(), BinaryOperator.Opcode.Imp);
+      for (int i = 0; i < invariants.Count; i++)
+      {
+        int ident = i + 1;
+        string actual_flag_name = loop_label + "_on_" + ident;
+        Expr actual_flag = new IdentifierExpr(new Token(), actual_flag_name);
+        string before_flag_name = loop_label + "_on_b_" + ident;
+        Expr before_flag = new IdentifierExpr(new Token(), before_flag_name);
+        string inductive_flag_name = loop_label + "_on_a_" + ident;
+        Expr inductive_flag = new IdentifierExpr(new Token(), inductive_flag_name);
+        Expr inv_replaced = Replace_Target_Names(invariants[i].Expr, targets_by_loop, targets_2_duplicates, loops_traversed);
+
+        Expr inner_implication = new NAryExpr(new Token(), impl_op, new List<Expr> { inductive_flag, inv_replaced });
+        Expr inner_conjunction = new NAryExpr(new Token(), and_op, new List<Expr> { before_flag, inner_implication });
+        Expr implication = new NAryExpr(new Token(), impl_op, new List<Expr> { inner_conjunction, actual_flag });
+        assumption = new NAryExpr(new Token(), and_op, new List<Expr> { assumption, implication });
+      }
+      return new AssumeCmd(new Token(), assumption);
+    }
+
+      // the method creates the statement of the form
+      // if ( (on_b_1 && ... && on_b_n) && ((on_a_1 && ... && on_a_n) ==> (inv_replaced_1 && ... inv_replaced_n)) )
+      //   then (assume on_1 && ... && on_n)
+      // else if ...
+      // and so on, with all possible invariants combinations
+      private static IfCmd Infer_Invariants_Stmt_Complex(IList<PredicateCmd> invariants, string loop_label, Dictionary<string, HashSet<string>> targets_by_loop, Dictionary<string, string> targets_2_duplicates, List<string> loops_traversed)
     {
       IfCmd res;
 
@@ -1653,7 +1706,7 @@ namespace Core
           IToken tok = new Token();
           string name;
           targets_2_duplicates.TryGetValue(guard_ident.Name, out name);
-          IdentifierExpr new_ident = new IdentifierExpr(tok, name);
+          IdentifierExpr new_ident = new IdentifierExpr(tok, name, guard_ident.Type);
           res = new_ident;
         }
         else
@@ -1712,7 +1765,7 @@ namespace Core
               string dupl;
               targets_2_duplicates.TryGetValue(v.Name, out dupl);
               IToken tok_v_transformed = new Token();
-              IdentifierExpr v_transformed = new IdentifierExpr(tok_v_transformed, dupl);
+              IdentifierExpr v_transformed = new IdentifierExpr(tok_v_transformed, dupl, v.Type);
               h_vars_transformed.Add(v_transformed);
             }
             else
@@ -1738,34 +1791,76 @@ namespace Core
           AssignCmd c_a = (AssignCmd)c;
 
           // transform lhs
+          IList<AssignLhs> lhss_transformed = new List<AssignLhs>();
 
-          string name_lhs_transformed;
-          // here I assume there is only one variable as a left hand side
-          string name_lhs = c_a.Lhss.ToList()[0].DeepAssignedIdentifier.Name;
-          if (targ.Contains(name_lhs))
+          for (int i = 0; i < c_a.Lhss.ToList().Count; i++)
           {
-            targets_2_duplicates.TryGetValue(name_lhs, out name_lhs_transformed);
-          } else
-          {
-            name_lhs_transformed = name_lhs;
+            string name_lhs_transformed;
+            AssignLhs lhs = c_a.Lhss.ToList()[i];
+            string name_lhs = lhs.DeepAssignedIdentifier.Name;
+            if (targ.Contains(name_lhs))
+            {
+              targets_2_duplicates.TryGetValue(name_lhs, out name_lhs_transformed);
+            }
+            else
+            {
+              name_lhs_transformed = name_lhs;
+            }
+
+            IToken tok_lhs_expr = new Token();
+            IdentifierExpr lhs_expr = new IdentifierExpr(tok_lhs_expr, name_lhs_transformed);
+            IToken tok_simple_assign = new Token();
+            AssignLhs lhs_transformed;
+            if ((lhs as MapAssignLhs) != null)
+            {
+              lhs_transformed = new SimpleAssignLhs(tok_simple_assign, lhs_expr);
+              List<Expr> indices = new List<Expr>();
+              foreach (Expr index in (lhs as MapAssignLhs).Indexes)
+              {
+                indices.Add(Replace_Target_Names(index, targets_by_loop, targets_2_duplicates, loops_traversed));
+              }
+              lhs_transformed = new MapAssignLhs(tok_simple_assign, lhs_transformed, indices);
+            }
+            else
+            {
+              lhs_transformed = new SimpleAssignLhs(tok_simple_assign, lhs_expr);
+            }
+
+
+            lhss_transformed.Add(lhs_transformed);
           }
 
-          IToken tok_lhs_expr = new Token();
-          IdentifierExpr lhs_expr = new IdentifierExpr(tok_lhs_expr, name_lhs_transformed);
-          IToken tok_simple_assign = new Token();
-          AssignLhs lhs_transformed = new SimpleAssignLhs(tok_simple_assign, lhs_expr);
-          IList<AssignLhs> lhss_transformed = new List<AssignLhs>();
-          lhss_transformed.Add(lhs_transformed);
+
 
           // transform rhs
-          // assumption: only one Expr for rhs
-          Expr rhs_expr = Replace_Target_Names(c_a.Rhss.ToList()[0], targets_by_loop, targets_2_duplicates, loops_traversed);
           IList<Expr> rhss_transformed = new List<Expr>();
-          rhss_transformed.Add(rhs_expr);
-          IToken tok_assign = new Token(); 
+
+          for (int i = 0; i < c_a.Rhss.ToList().Count; i++)
+          {
+            Expr rhs_expr = Replace_Target_Names(c_a.Rhss.ToList()[i], targets_by_loop, targets_2_duplicates, loops_traversed);
+
+            rhss_transformed.Add(rhs_expr);
+          }
+          IToken tok_assign = new Token();
           AssignCmd c_a_transformed = new AssignCmd(tok_assign, lhss_transformed, rhss_transformed);
 
           sc_transformed.Add(c_a_transformed);
+
+        }
+        else if (c is CallCmd) 
+        {
+          CallCmd call = c as CallCmd;
+          List<Expr> transformedIns = new List<Expr>();
+          List<IdentifierExpr> transformedOuts = new List<IdentifierExpr>();
+          foreach (Expr inexp in call.Ins)
+          {
+            transformedIns.Add(Replace_Target_Names(inexp, targets_by_loop, targets_2_duplicates, loops_traversed));
+          }
+          foreach (Expr outexp in call.Outs)
+          {
+            transformedOuts.Add(Replace_Target_Names(outexp, targets_by_loop, targets_2_duplicates, loops_traversed) as IdentifierExpr);
+          }
+          sc_transformed.Add(new CallCmd(new Token(), call.callee, transformedIns, transformedOuts));
         }
         else // some unknown command
         {
@@ -2111,7 +2206,7 @@ namespace Core
       
             IToken tok_for_typeIdent = new Token();
             string name_duplicate = v.Name + "_duplicate";
-            TypedIdent t_Ident = new TypedIdent(tok_for_typeIdent, name_duplicate, b_type);
+            TypedIdent t_Ident = new TypedIdent(tok_for_typeIdent, name_duplicate, v.TypedIdent.Type);
 
             IToken tok_for_var = new Token();
             LocalVariable var_duplicate = new LocalVariable(tok_for_var, t_Ident);
@@ -2212,17 +2307,22 @@ namespace Core
               AssignCmd ac = (AssignCmd)c;
               // apparently there can be several left hand sides, so we use Lhss[0]
               // TODO: exception, if more then one left hand side
-              string var_name = ac.Lhss[0].DeepAssignedIdentifier.Name;
-
-              foreach (string s in loop_labels)
+              for (int i = 0; i < ac.Lhss.Count; i++)
               {
-                if (!res.ContainsKey(s)) {
-                  HashSet<string> vals = new HashSet<string>();
-                  vals.Add(var_name);
-                  res.Add(s, vals);
+                string var_name = ac.Lhss[i].DeepAssignedIdentifier.Name;
+
+                foreach (string s in loop_labels)
+                {
+                  if (!res.ContainsKey(s))
+                  {
+                    HashSet<string> vals = new HashSet<string>();
+                    vals.Add(var_name);
+                    res.Add(s, vals);
+                  }
+                  res[s].Add(var_name);
                 }
-                res[s].Add(var_name);
               }
+
             }
           }         
         }
@@ -2315,8 +2415,12 @@ namespace Core
               AssignCmd ac = (AssignCmd)c;
               // apparently there can be several left hand sides, so we use Lhss[0]
               // TODO: exception, if more then one left hand side
-              string var_name = ac.Lhss[0].DeepAssignedIdentifier.Name;
-              res.Add(var_name);
+              for (int i = 0; i < ac.Lhss.Count; i++)
+              {
+                string var_name = ac.Lhss[i].DeepAssignedIdentifier.Name;
+                res.Add(var_name);
+              }
+
             }
           }
         }

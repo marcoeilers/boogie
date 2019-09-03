@@ -640,4 +640,15 @@ Global
 		{59118E35-4236-495E-AF6E-0D641302ED2C} = {0C77D814-EC94-45D7-9F9B-213C425D0F15}
 		{D00C3F22-1EDA-4781-8F0E-81991E9CB0D9} = {0C77D814-EC94-45D7-9F9B-213C425D0F15}
 	EndGlobalSection
+	GlobalSection(MonoDevelopProperties) = preSolution
+		Policies = $0
+		$0.TextStylePolicy = $1
+		$1.FileWidth = 80
+		$1.TabWidth = 2
+		$1.TabsToSpaces = True
+		$1.IndentWidth = 2
+		$1.scope = text/x-csharp
+		$0.CSharpFormattingPolicy = $2
+		$2.scope = text/x-csharp
+	EndGlobalSection
 EndGlobal
