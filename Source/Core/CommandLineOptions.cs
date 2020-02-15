@@ -422,6 +422,7 @@ namespace Microsoft.Boogie {
     public bool PrintInstrumented = false;
     public bool InstrumentWithAsserts = false;
     public string ProverPreamble = null;
+    public bool WarnNotEliminatedVars = false;
 
     public enum InstrumentationPlaces {
       LoopHeaders,
@@ -491,6 +492,9 @@ namespace Microsoft.Boogie {
     public string Z3ExecutablePath = null;
     public string Z3ExecutableName = null;
     public string CVC4ExecutablePath = null;
+    public string Yices2ExecutablePath = null;
+    public string Yices2ExecutableName = null;
+
     public int KInductionDepth = -1;
     public int EnableUnSatCoreExtract = 0;
 
@@ -788,7 +792,6 @@ namespace Microsoft.Boogie {
     public bool ExtractLoopsUnrollIrreducible = true; // unroll irreducible loops? (set programmatically)
 
     public enum TypeEncoding {
-      None,
       Predicates,
       Arguments,
       Monomorphic
@@ -1384,10 +1387,6 @@ namespace Microsoft.Boogie {
         case "typeEncoding":
           if (ps.ConfirmArgumentCount(1)) {
             switch (args[ps.i]) {
-              case "n":
-              case "none":
-                TypeEncodingMethod = TypeEncoding.None;
-                break;
               case "p":
               case "predicates":
                 TypeEncodingMethod = TypeEncoding.Predicates;
@@ -1592,7 +1591,11 @@ namespace Microsoft.Boogie {
 				CVC4ExecutablePath = args[ps.i];
 			}
 			return true;
-
+        case "yices2exe":
+			if (ps.ConfirmArgumentCount(1)) {
+				Yices2ExecutablePath = args[ps.i];
+			}
+			return true;
         case "kInductionDepth":
           ps.GetNumericArgument(ref KInductionDepth);
           return true;
@@ -1654,7 +1657,8 @@ namespace Microsoft.Boogie {
               ps.CheckBooleanFlag("trustAtomicityTypes", ref TrustAtomicityTypes) ||
               ps.CheckBooleanFlag("trustNonInterference", ref TrustNonInterference) ||
               ps.CheckBooleanFlag("useBaseNameForFileName", ref UseBaseNameForFileName) ||
-              ps.CheckBooleanFlag("freeVarLambdaLifting", ref FreeVarLambdaLifting)
+              ps.CheckBooleanFlag("freeVarLambdaLifting", ref FreeVarLambdaLifting) ||
+              ps.CheckBooleanFlag("warnNotEliminatedVars", ref WarnNotEliminatedVars)
               ) {
             // one of the boolean flags matched
             return true;
@@ -2089,7 +2093,6 @@ namespace Microsoft.Boogie {
                 Translate Boogie's A ==> B into prover's A ==> A && B.
   /typeEncoding:<m>
                 how to encode types when sending VC to theorem prover
-                   n = none (unsound)
                    p = predicates (default)
                    a = arguments
                    m = monomorphic
@@ -2238,6 +2241,10 @@ namespace Microsoft.Boogie {
   CVC4 specific options:
   /cvc4exe:<path>
                 path to CVC4 executable
+
+  Yices2 specific options:
+  /yices2exe:<path>
+                path to Yices2 executable
 ");
     }
   }

@@ -216,17 +216,9 @@ ensures {:layer 100} Iso(root, rootAbs, mem, memAbs, Color, toAbs, allocSet);
 procedure {:atomic} {:layer 97,100} AtomicInitVars100({:linear "tid"} tid:Tid, {:linear "tid"} mutatorTids:[int]bool)
 modifies mutatorPhase, root, toAbs, Color, mem, collectorPhase, sweepPtr;
 {
-    var memNew:[int][fld]int;
-    var rootNew:[idx]int;
-    var ColorNew:[int]int;
-    var mutatorPhaseNew:[X]int;
-
     assert tid == GcTid;
     assert (forall i:int :: mutatorId(i) ==> mutatorTids[i] && mutatorTids[-i]);
-    mem := memNew;
-    root := rootNew;
-    Color := ColorNew;
-    mutatorPhase := mutatorPhaseNew;
+    havoc mem, root, Color, mutatorPhase;
     assume (forall x: int, f: fld :: memAddr(x) && fieldAddr(f) ==> mem[x][f] == x);
     assume (forall x: idx :: rootAddr(x) ==> root[x] == 0);
     assume (forall i:int :: memAddr(i) ==> Color[i] == UNALLOC());
@@ -235,8 +227,8 @@ modifies mutatorPhase, root, toAbs, Color, mem, collectorPhase, sweepPtr;
     collectorPhase := IDLE();
     sweepPtr := memHi;
 }
-    
-procedure {:yields} {:layer 96} {:refines "AtomicInitVars100"} InitVars100({:linear "tid"} tid:Tid, {:linear "tid"} mutatorTids:[int]bool)    
+
+procedure {:yields} {:layer 96} {:refines "AtomicInitVars100"} InitVars100({:linear "tid"} tid:Tid, {:linear "tid"} mutatorTids:[int]bool)
 {
     var n:int;
     var m:int;
@@ -776,11 +768,9 @@ ensures {:layer 100} MarkInv(root, rootAbs, mem, memAbs, Color, toAbs, allocSet)
 procedure {:atomic} {:layer 100} AtomicCanMarkStop({:linear "tid"} tid:Tid) returns (canStop: bool)
 modifies Color;
 {
-    var oldColor, newColor: [int]int;
     assert tid == GcTid;
-    oldColor := Color;
-    Color := newColor;
-    assume (forall u: int :: if memAddr(u) && White(oldColor[u]) && (exists k: int :: rootAddr(k) && root[k] == u) then Color[u] == GRAY() else Color[u] == oldColor[u]);
+    havoc Color;
+    assume (forall u: int :: if memAddr(u) && White(old(Color)[u]) && (exists k: int :: rootAddr(k) && root[k] == u) then Color[u] == GRAY() else Color[u] == old(Color)[u]);
     canStop := (forall v: int :: memAddr(v) ==> !Gray(Color[v]));
 }
 
@@ -1519,7 +1509,7 @@ modifies rootScanBarrier, mutatorsInRootScanBarrier;
                         assert mutatorTidWhole(tid);
                         rootScanBarrier := rootScanBarrier - 1;
                         mutatorsInRootScanBarrier[i#Tid(tid)] := true;
-                        assume i#Tid(tid_left) == i#Tid(tid) && left#Tid(tid_left);
+                        tid_left := Tid(i#Tid(tid), true, false);
 }
 
 procedure {:yields} {:layer 96} {:refines "AtomicMutatorRootScanBarrierEnter"} MutatorRootScanBarrierEnter({:linear_in "tid"} tid: Tid) returns({:linear "tid"} tid_left: Tid)
@@ -1544,7 +1534,7 @@ modifies rootScanBarrier, mutatorsInRootScanBarrier;
                         assume !rootScanOn;
                         rootScanBarrier := rootScanBarrier + 1;
                         mutatorsInRootScanBarrier[i#Tid(tid_left)] := false;
-                        assume i#Tid(tid) == i#Tid(tid_left) && left#Tid(tid) && right#Tid(tid);
+                        tid := Tid(i#Tid(tid_left), true, true);
 }
 
 procedure {:yields} {:layer 96} {:refines "AtomicMutatorRootScanBarrierWait"} MutatorRootScanBarrierWait({:linear_in "tid"} tid_left: Tid) returns({:linear "tid"} tid: Tid)
@@ -1932,7 +1922,10 @@ procedure {:yields} {:layer 95} {:refines "AtomicMutatorReadBarrierOn"} MutatorR
     yield;
 }
 
-procedure {:yields} {:layer 95} PollMutatorReadBarrierOn({:linear "tid"} tid: Tid) returns (val:bool)
+procedure {:both} {:layer 96,99} AtomicPollMutatorReadBarrierOn({:linear "tid"} tid: Tid) returns (val:bool)
+{ }
+
+procedure {:yields} {:layer 95} {:refines "AtomicPollMutatorReadBarrierOn"} PollMutatorReadBarrierOn({:linear "tid"} tid: Tid) returns (val:bool)
 {
     yield;
     call val := PrimitiveReadRootScanOn();

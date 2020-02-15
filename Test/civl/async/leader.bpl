@@ -55,10 +55,7 @@ function {:inline} all_decided' (r_bound:int, init_val:[int]int, dec_dom:[int]bo
 procedure {:atomic}{:layer 2} main_atomic ({:linear_in "Perm"} perms:[Perm]bool)
 modifies col_dom, col_val, dec_dom, dec_val;
 {
-  var dec_dom':[int]bool;
-  var dec_val':[int]int;
-  dec_dom := dec_dom';
-  dec_val := dec_val';
+  havoc dec_dom, dec_val;
   assume all_decided(init_val, dec_dom, dec_val);
 }
 
@@ -80,7 +77,7 @@ requires {:layer 1} col_dom == (lambda i:int :: (lambda j:int :: false));
   invariant {:layer 1} s > N ==> all_decided(init_val, dec_dom, dec_val);
   {
     call perms',perms'' := split_perms_sender(s, perms');
-    async call P(s, perms'');
+    async call {:sync} P(s, perms'');
     s := s + 1;
   }
   yield; assert {:layer 1} all_decided(init_val, dec_dom, dec_val);
@@ -108,7 +105,7 @@ modifies col_dom, col_val, dec_dom, dec_val;
   invariant {:layer 1} s == N ==> all_decided'(r, init_val, dec_dom, dec_val);
   {
     call perms',p := split_perms_receiver(s,r,perms');
-    async call Q(r, s, v, p);
+    async call {:sync} Q(r, s, v, p);
     r := r + 1;
   }
   call dummy();

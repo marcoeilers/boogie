@@ -6,6 +6,10 @@ function {:inline} {:linear "tid"} TidCollector(x: int) : [int]bool
 {
   MapConstBool(false)[x := true]
 }
+function {:inline} {:linear "tid"} TidSetCollector(x: [int]bool) : [int]bool
+{
+  x
+}
 
 const unique DEFAULT: int;
 const unique CREATED: int;
@@ -90,7 +94,7 @@ procedure {:yields} {:layer 3} {:refines "atomic_server"} server3({:linear "tid"
     invariant {:layer 3} status == (lambda j: int :: if (0 <= j && j < i) then CREATED else snapshot[j]);
     {
         call tid, tids' := Alloc(i, tids');
-        async call server2(tid);
+        async call {:sync} server2(tid);
         i := i + 1;
     }
     yield;

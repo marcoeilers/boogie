@@ -71,6 +71,24 @@ namespace Microsoft.Boogie.SMTLib
                     return;
                 }
 
+                var exePaths = Environment.GetEnvironmentVariable("PATH");
+                foreach (var exePath in exePaths.Split(Path.PathSeparator))
+                {
+                    var exes = new string[] { proverExe, Path.GetFileNameWithoutExtension(proverExe) };
+                    foreach (var exe in exes) {
+                        var path = Path.Combine(exePath, exe);
+                        if (File.Exists(path)) {
+                            _proverPath = path;
+
+                            if (CommandLineOptions.Clo.Trace)
+                            {
+                                Console.WriteLine("[TRACE] Using prover: " + _proverPath);
+                            }
+                            return;
+                        }
+                    }
+                }
+
                 List<string> z3Dirs = new List<string>();
                 var msrDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), @"Microsoft Research\");
                 if (Directory.Exists(msrDir))
@@ -136,9 +154,10 @@ namespace Microsoft.Boogie.SMTLib
 
         static int Z3MajorVersion = 0;
         static int Z3MinorVersion = 0;
+        static int Z3PatchVersion = 0;
         static bool Z3VersionObtained = false;
 
-        public static void GetVersion(out int major, out int minor)
+        public static void GetVersion(out int major, out int minor, out int patch)
         {
             if (!Z3VersionObtained)
             {
@@ -163,10 +182,16 @@ namespace Microsoft.Boogie.SMTLib
                             var spacebeforefirstdot = answer.LastIndexOf(' ', firstdot);
                             if (spacebeforefirstdot >= 0)
                             {
-                                var majorstr = answer.Substring(spacebeforefirstdot, firstdot - spacebeforefirstdot);
-                                var minorstr = answer.Substring(firstdot + 1, seconddot - firstdot - 1);
-                                Z3MajorVersion = Convert.ToInt32(majorstr);
-                                Z3MinorVersion = Convert.ToInt32(minorstr);
+                                var spaceafterseconddot = answer.IndexOf(' ', seconddot + 1);
+                                if (spaceafterseconddot >= 0) {
+
+                                    var majorstr = answer.Substring(spacebeforefirstdot, firstdot - spacebeforefirstdot);
+                                    var minorstr = answer.Substring(firstdot + 1, seconddot - firstdot - 1);
+                                    var patchstr = answer.Substring(seconddot + 1, spaceafterseconddot - seconddot - 1);
+                                    Z3MajorVersion = Convert.ToInt32(majorstr);
+                                    Z3MinorVersion = Convert.ToInt32(minorstr);
+                                    Z3PatchVersion = Convert.ToInt32(patchstr);
+                                }
                             }
                         }
                     }
@@ -175,12 +200,13 @@ namespace Microsoft.Boogie.SMTLib
             }
             major = Z3MajorVersion;
             minor = Z3MinorVersion;
+            patch = Z3PatchVersion;
         }
 
         public static string SetTimeoutOption()
         {
-            int major, minor;
-            GetVersion(out major, out minor);
+            int major, minor, patch;
+            GetVersion(out major, out minor, out patch);
             if (major > 4 || major == 4 && minor >= 3)
                 return "TIMEOUT";
             else
@@ -189,8 +215,8 @@ namespace Microsoft.Boogie.SMTLib
 
         public static string SetRlimitOption()
         {
-            int major, minor;
-            GetVersion(out major, out minor);
+            int major, minor, patch;
+            GetVersion(out major, out minor, out patch);
             if (major > 4 || major == 4 && minor >= 3)
                 return "RLIMIT";
             else
@@ -206,8 +232,8 @@ namespace Microsoft.Boogie.SMTLib
         // throws ProverException, System.IO.FileNotFoundException;
         {
           FindExecutable();
-          int major, minor;
-          GetVersion(out major, out minor);
+          int major, minor, patch;
+          GetVersion(out major, out minor, out patch);
           if (major > 4 || major == 4 && minor >= 3)
           {
 
@@ -271,9 +297,14 @@ namespace Microsoft.Boogie.SMTLib
             options.AddWeakSmtOption("TYPE_CHECK", "true");
             options.AddWeakSmtOption("smt.BV.REFLECT", "true");
 
-            if (major > 4 || (major == 4 && minor >= 8)) {
+            if (major > 4 || (major == 4 && minor >= 8 && patch >= 1)) {
               // {:captureState} does not work with compressed models
-              options.AddWeakSmtOption("model_compress", "false");
+
+              // model_compress was introduced in 4.8.1 and eliminated (consolidated with model.compact) in 4.8.7
+              if (major == 4 && minor == 8 && patch < 7)
+                  options.AddWeakSmtOption("model_compress", "false");
+              else
+                  options.AddWeakSmtOption("model.compact", "false");
             }
 
             if (options.TimeLimit > 0)

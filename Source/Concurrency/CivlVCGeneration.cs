@@ -1,7 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 
 namespace Microsoft.Boogie
 {
@@ -24,20 +22,24 @@ namespace Microsoft.Boogie
             }
 
             // Desugaring of yielding procedures
-            CivlRefinement.AddCheckers(linearTypeChecker, civlTypeChecker, decls);
+            YieldingProcChecker.AddCheckers(linearTypeChecker, civlTypeChecker, decls);
 
-            // Trigger functions for existential vairables in transition relations
-            decls.AddRange(civlTypeChecker.procToAtomicAction.Values.SelectMany(a => a.layerToActionCopy.Values.SelectMany(ac => ac.triggerFuns.Values)));
-            
+            // Linear type checks
+            LinearTypeChecker.AddCheckers(linearTypeChecker, civlTypeChecker, decls);
+
+            InductiveSequentializationChecker.AddChecks(civlTypeChecker);
+            PendingAsyncChecker.AddCheckers(civlTypeChecker);
+
+            foreach(AtomicAction action in civlTypeChecker.procToAtomicAction.Values.Union(civlTypeChecker.procToIsAbstraction.Values))
+            {
+                action.AddTriggerAssumes(program);
+            }
+
             // Remove original declarations and add new checkers generated above
             program.RemoveTopLevelDeclarations(x => originalDecls.Contains(x));
             program.AddTopLevelDeclarations(decls);
 
-            foreach (AtomicAction atomicAction in civlTypeChecker.procToAtomicAction.Values)
-            {
-                program.RemoveTopLevelDeclaration(atomicAction.proc);
-                program.RemoveTopLevelDeclaration(atomicAction.impl);
-            }
+            BackwardAssignmentSubstituter.SubstituteBackwardAssignments(civlTypeChecker.procToAtomicAction.Values);
         }
     }
 }
